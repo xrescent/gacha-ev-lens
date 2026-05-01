@@ -1,11 +1,13 @@
-# TCG Japan EV Lens
+# Gacha EV Lens
 
-Chrome MV3 extension for estimating the expected value of TCG Japan gacha pools.
+Chrome MV3 extension for estimating the expected value of online TCG gacha pools.
 
 ## What It Does
 
 - Detects TCG Japan pool pages such as `https://tcg-japan.com/pokemon/1603`.
-- Reads pool metadata from the public Oripal package API.
+- Detects DOPA Global pool pages such as `https://dopa-global.com/zh/gacha/3765`.
+- Reads TCG Japan pool metadata from the public Oripal package API.
+- Reads DOPA Global pool metadata from the page's Next.js payload and maps S/A/B/C tiers into R1/R2/R3/R4.
 - Searches SNKRDUNK with each prize card name, card number, rarity, and PSA grade when present.
 - Fetches SNKRDUNK sales-chart data and uses the latest point as the card price.
 - Uses PSA10 pricing only when the card name/class marks the prize as PSA; non-PSA prizes use SNKRDUNK B-condition sales-chart prices.
@@ -24,11 +26,12 @@ Chrome MV3 extension for estimating the expected value of TCG Japan gacha pools.
 2. Enable `Developer mode`.
 3. Click `Load unpacked`.
 4. Select this project folder.
-5. Visit a supported TCG Japan pool page.
+5. Visit a supported TCG Japan or DOPA Global pool page.
 
 ## Notes
 
 - TCG Japan currently exposes the sample pool through `https://api.oripal-world.com/api/package/1603?shop_id=21`.
+- DOPA Global pages embed pack totals, remaining draw counts, visible prize quantities, and last-one prize data in the page payload.
 - SNKRDUNK search uses `https://snkrdunk.com/search?keywords=...`.
 - SNKRDUNK sales data is read from `/v1/apparels/{id}/sales-chart/used?salesChartOptionId=...`.
 - If the selected SNKRDUNK condition has no sales-chart data, the extension leaves the prize unpriced instead of using a mixed-condition listing price.

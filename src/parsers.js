@@ -1,5 +1,6 @@
 export const SNKRDUNK_BASE_URL = "https://snkrdunk.com";
 export const TCG_JAPAN_API_BASE_URL = "https://api.oripal-world.com";
+export const DOPA_GLOBAL_BASE_URL = "https://dopa-global.com";
 
 const KNOWN_CONDITIONS = [
   "PSA10",
@@ -52,6 +53,20 @@ export function parseTcgJapanPackagePath(pathname) {
   };
 }
 
+export function parseDopaGlobalPackagePath(pathname) {
+  const parts = String(pathname || "").split("/").filter(Boolean);
+  const gachaIndex = parts.indexOf("gacha");
+  if (gachaIndex === -1 || gachaIndex >= parts.length - 1) return null;
+
+  const packageId = Number(parts[gachaIndex + 1]);
+  if (!Number.isInteger(packageId) || packageId <= 0) return null;
+
+  return {
+    locale: gachaIndex > 0 ? parts[gachaIndex - 1] : "zh",
+    packageId
+  };
+}
+
 export function decodeHtmlEntities(value) {
   return String(value || "")
     .replace(/\\u0026/g, "&")
@@ -96,6 +111,7 @@ export function isPsaCard(card) {
   return (
     /PSA\s*10/i.test(String(card.name || "")) ||
     String(classText).includes("gacha-info-card-psa") ||
+    String(card.productType || card.product_type || "").toLowerCase() === "psa" ||
     card.is_psa_enabled === 1
   );
 }
@@ -106,6 +122,8 @@ export function extractCardSearchParts(card) {
   const braceNumber = rawName.match(/\{([^}]+)\}/);
   const looseNumber = rawName.match(/([0-9]{2,3}\s*\/\s*[0-9]{2,3})/);
   const rarityMatch = rawName.match(/【([^】]+)】/);
+  const fieldRarity = normalizeWhitespace(card?.rarity || "");
+  const fieldNumber = normalizeWhitespace(card?.itemNumber || card?.item_number || card?.cardNumber || "");
   const psaGrade = isPsaCard(card)
     ? Number(card?.psa || (psaMatch ? psaMatch[1] : 10))
     : null;
@@ -113,17 +131,20 @@ export function extractCardSearchParts(card) {
   const baseName = normalizeWhitespace(
     rawName
       .replace(/〔[^〕]*PSA\s*\d+[^〕]*〕/gi, "")
+      .replace(/\((?:Japanese|English|Korean|Chinese)\)/gi, "")
+      .replace(/\(\s*PSA\s*\d+\s*\)/gi, "")
       .replace(/\[[^\]]*\]/g, "")
       .replace(/【[^】]+】/g, "")
       .replace(/\{[^}]+\}/g, "")
       .replace(/PSA\s*\d+/gi, "")
+      .replace(/\(\s*\)/g, "")
   );
 
   return {
     rawName,
     baseName,
-    rarity: rarityMatch ? normalizeWhitespace(rarityMatch[1]) : "",
-    cardNumber: normalizeWhitespace(braceNumber?.[1] || looseNumber?.[1] || "").replace(/\s/g, ""),
+    rarity: rarityMatch ? normalizeWhitespace(rarityMatch[1]) : fieldRarity,
+    cardNumber: normalizeWhitespace(braceNumber?.[1] || looseNumber?.[1] || fieldNumber || "").replace(/\s/g, ""),
     psaGrade
   };
 }
@@ -328,4 +349,235 @@ export function normalizePackageCards(packageData) {
       if (rankDiff !== 0) return rankDiff;
       return Number(a.id || 0) - Number(b.id || 0);
     });
+}
+
+export function parseDopaPackageHtml(html, options = {}) {
+  const payload = collectNextFlightPayload(html);
+  const props = findDopaPageProps(payload);
+  if (!props?.pack) {
+    throw new Error("DOPA page did not include gacha package data.");
+  }
+
+  return normalizeDopaPackage(props, options);
+}
+
+function collectNextFlightPayload(html) {
+  const re = /self\.__next_f\.push\((\[[\s\S]*?\])\)<\/script>/g;
+  let match;
+  let payload = "";
+
+  while ((match = re.exec(String(html || "")))) {
+    try {
+      const chunk = JSON.parse(match[1]);
+      if (typeof chunk?.[1] === "string") payload += chunk[1];
+    } catch (_error) {
+      // Ignore unrelated Next.js chunks that are not valid JSON arrays.
+    }
+  }
+
+  return payload;
+}
+
+function findDopaPageProps(payload) {
+  const text = String(payload || "");
+  let index = text.indexOf("\"packId\":\"");
+
+  while (index !== -1) {
+    const labelStart = text.lastIndexOf(":[", index);
+    if (labelStart !== -1) {
+      const arrayText = readBalancedJson(text, labelStart + 1);
+      if (arrayText) {
+        try {
+          const node = JSON.parse(arrayText);
+          const props = findDopaPropsInNode(node);
+          if (props?.pack) return props;
+        } catch (_error) {
+          // Keep scanning; the payload can contain many RSC records.
+        }
+      }
+    }
+
+    index = text.indexOf("\"packId\":\"", index + 1);
+  }
+
+  return null;
+}
+
+function readBalancedJson(text, startIndex) {
+  const start = String(text || "")[startIndex];
+  if (start !== "[" && start !== "{") return "";
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "[" || char === "{") depth += 1;
+    if (char === "]" || char === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(startIndex, index + 1);
+    }
+  }
+
+  return "";
+}
+
+function findDopaPropsInNode(node, depth = 0) {
+  if (!node || depth > 10) return null;
+
+  if (!Array.isArray(node) && typeof node === "object" && node.pack && node.packId) {
+    return node;
+  }
+
+  const values = Array.isArray(node) ? node : typeof node === "object" ? Object.values(node) : [];
+  for (const value of values) {
+    const found = findDopaPropsInNode(value, depth + 1);
+    if (found) return found;
+  }
+
+  return null;
+}
+
+function normalizeDopaPackage(props, options = {}) {
+  const pack = props.pack || {};
+  const preview = props.previewImage || {};
+  const packageId = Number(pack.id || props.packId || options.packageId || 0);
+  const cards = normalizeDopaRankedCards(preview.rankedCards, packageId);
+  const lastOneCard = normalizeDopaLastOneCard(preview.lastOneCard?.data, packageId);
+  const totalQuantity = Number(pack.total || 0);
+  const listedQuantity = cards.reduce((sum, card) => sum + Number(card.number || 0), 0);
+  const consolationQuantity = totalQuantity > listedQuantity ? totalQuantity - listedQuantity : 0;
+  const minReturnPoint = Number(pack.returnInfo?.minReturn || 0);
+
+  if (lastOneCard) cards.push(lastOneCard);
+
+  return {
+    id: packageId,
+    source: "dopa",
+    name: normalizeWhitespace(pack.name || `DOPA #${packageId}`),
+    image_url: pack.imageUrl || preview.coverImage?.url || "",
+    price: Number(pack.oneTimePoint || 0),
+    number: totalQuantity,
+    stock: Number(pack.remaining || 0),
+    stock_quantity: Number(pack.remaining || 0),
+    sold: Number(pack.sold || pack.pulled_number || 0),
+    description: pack.description || preview.gachaDetail || "",
+    currency: "pt",
+    dopa_locale: options.locale || "",
+    dopa_pack_type: pack.packType || "",
+    dopa_hazure_kind: pack.hazure_kind || "",
+    consolation_prize: consolationQuantity && minReturnPoint
+      ? {
+          rank: 4,
+          quantity: consolationQuantity,
+          point: minReturnPoint,
+          source: "api_point",
+          placeholderCount: 0
+        }
+      : null,
+    package_cards: cards.sort((a, b) => {
+      const rankDiff = Number(a.rank || 999) - Number(b.rank || 999);
+      if (rankDiff !== 0) return rankDiff;
+      return Number(a.id || 0) - Number(b.id || 0);
+    })
+  };
+}
+
+function normalizeDopaRankedCards(rankedCards, packageId) {
+  const groups = Array.isArray(rankedCards) ? rankedCards : [];
+  const cards = [];
+
+  for (const group of groups) {
+    const rank = dopaRankToDisplayRank(group?.rank);
+    const data = Array.isArray(group?.cards?.data) ? group.cards.data : [];
+
+    for (const card of data) {
+      const normalized = normalizeDopaCard(card, {
+        packageId,
+        rank,
+        dopaRank: group?.rank
+      });
+      if (normalized) cards.push(normalized);
+    }
+  }
+
+  return cards;
+}
+
+function normalizeDopaLastOneCard(card, packageId) {
+  const normalized = normalizeDopaCard(card, {
+    packageId,
+    rank: 9,
+    dopaRank: "last-one"
+  });
+  if (!normalized) return null;
+
+  return {
+    ...normalized,
+    id: `dopa-last-${normalized.id}`,
+    is_last_one: true,
+    number: Number(normalized.number || 1) || 1
+  };
+}
+
+function normalizeDopaCard(card, context) {
+  if (!card?.id) return null;
+
+  const productType = String(card.productType || card.product_type || "").toLowerCase();
+  const psa = Number(card.psaPoint || card.psa_point || 0);
+  const quantity = Number(card.quantity || 0);
+  const point = Number(card.pack_card_point || card.point || 0);
+
+  return {
+    id: `dopa-${card.id}`,
+    package_id: context.packageId || null,
+    source: "dopa",
+    rank: context.rank,
+    dopa_rank: context.dopaRank || "",
+    name: normalizeWhitespace(card.name || ""),
+    image_url: card.imageUrl || card.image_url || "",
+    number: quantity > 0 ? quantity : 1,
+    point: Number.isFinite(point) && point > 0 ? point : null,
+    itemNumber: normalizeWhitespace(card.itemNumber || card.item_number || ""),
+    rarity: normalizeWhitespace(card.rarity || ""),
+    product_type: productType,
+    is_psa_enabled: productType === "psa" || psa > 0 ? 1 : 2,
+    psa: psa > 0 ? psa : null,
+    only_shipping: Boolean(card.onlyShipping || card.only_shipping)
+  };
+}
+
+function dopaRankToDisplayRank(rank) {
+  const normalized = normalizeWhitespace(rank).toLowerCase();
+  const map = {
+    grail: 1,
+    s: 1,
+    "1st": 2,
+    a: 2,
+    "2nd": 3,
+    b: 3,
+    "3rd": 4,
+    c: 4,
+    hazure: 4
+  };
+
+  return map[normalized] || 4;
 }

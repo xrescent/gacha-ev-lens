@@ -1,6 +1,6 @@
 {
-  "name": "tcg-japan-ev-lens",
-  "version": "0.1.0",
+  "name": "gacha-ev-lens",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "scripts": {

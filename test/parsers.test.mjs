@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildConsolationPrizeSummary,
   buildSnkrdunkSearchQuery,
+  parseDopaPackageHtml,
   parseLatestSalesPoint,
   parseSalesHistoryOptions,
   parseSnkrdunkSearchResults,
@@ -111,5 +112,84 @@ assert.deepEqual(buildConsolationPrizeSummary(packageWithConsolation), {
   source: "api_point",
   placeholderCount: 6
 });
+
+const dopaProps = {
+  packId: "3765",
+  pack: {
+    id: 3765,
+    name: "265238　80000",
+    imageUrl: "https://cdn.dopa-global.com/pack.webp",
+    oneTimePoint: 80000,
+    total: 560,
+    remaining: 549,
+    sold: 11,
+    returnInfo: { minReturn: 300 },
+    hazure_kind: "B"
+  },
+  previewImage: {
+    lastOneCard: {
+      data: {
+        id: 736467,
+        name: "(Japanese) Pikachu (PSA10)",
+        imageUrl: "https://cdn.dopa-global.com/last.webp",
+        productType: "psa",
+        psaPoint: 10,
+        quantity: 1,
+        pack_card_point: 110000
+      }
+    },
+    rankedCards: [
+      {
+        rank: "s",
+        cards: {
+          data: [
+            {
+              id: 1354585,
+              name: "(Japanese) Rayquaza VMAX (PSA10)",
+              imageUrl: "https://cdn.dopa-global.com/ray.webp",
+              productType: "psa",
+              psaPoint: 10,
+              rarity: "HR",
+              quantity: 1,
+              pack_card_point: 1100000
+            }
+          ]
+        }
+      },
+      {
+        rank: "c",
+        cards: {
+          data: [
+            {
+              id: 10270965,
+              name: "(Japanese) [1 Pack]Night Wanderer",
+              imageUrl: "https://cdn.dopa-global.com/pack-card.webp",
+              productType: "pack",
+              rarity: "Pack",
+              quantity: 559,
+              pack_card_point: 300
+            }
+          ]
+        }
+      }
+    ]
+  }
+};
+const dopaFlight = `1c:${JSON.stringify(["$", "$L2c", null, dopaProps])}\n`;
+const dopaHtml = `<script>self.__next_f.push(${JSON.stringify([1, dopaFlight])})</script>`;
+const dopaPackage = parseDopaPackageHtml(dopaHtml, { packageId: 3765, locale: "zh" });
+
+assert.equal(dopaPackage.source, "dopa");
+assert.equal(dopaPackage.price, 80000);
+assert.equal(dopaPackage.number, 560);
+assert.equal(dopaPackage.stock, 549);
+assert.equal(dopaPackage.package_cards.length, 3);
+assert.equal(dopaPackage.package_cards[0].rank, 1);
+assert.equal(dopaPackage.package_cards[0].number, 1);
+assert.equal(dopaPackage.package_cards[0].is_psa_enabled, 1);
+assert.equal(dopaPackage.package_cards[1].rank, 4);
+assert.equal(dopaPackage.package_cards[1].product_type, "pack");
+assert.equal(dopaPackage.package_cards[2].rank, 9);
+assert.equal(buildSnkrdunkSearchQuery(dopaPackage.package_cards[0]), "Rayquaza VMAX HR PSA10");
 
 console.log("parser tests passed");

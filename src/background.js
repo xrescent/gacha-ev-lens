@@ -1,7 +1,9 @@
 import {
   buildConsolationPrizeSummary,
   buildSnkrdunkSearchQuery,
+  DOPA_GLOBAL_BASE_URL,
   normalizePackageCards,
+  parseDopaPackageHtml,
   parseLatestSalesPoint,
   parseSalesHistoryOptions,
   parseSnkrdunkSearchResults,
@@ -39,12 +41,17 @@ async function handleMessage(message) {
 
 async function getPackage(payload = {}) {
   const packageId = Number(payload.packageId);
-  const shopId = Number(payload.shopId || DEFAULT_SHOP_ID);
+  const source = payload.source === "dopa" ? "dopa" : "tcg-japan";
 
   if (!Number.isInteger(packageId) || packageId <= 0) {
     throw new Error("Invalid package id.");
   }
 
+  if (source === "dopa") {
+    return getDopaPackage(payload, packageId);
+  }
+
+  const shopId = Number(payload.shopId || DEFAULT_SHOP_ID);
   const url = `${TCG_JAPAN_API_BASE_URL}/api/package/${packageId}?shop_id=${shopId}`;
   const json = await fetchJson(url);
   const packageData = json.package;
@@ -60,6 +67,27 @@ async function getPackage(payload = {}) {
       package_cards: normalizePackageCards(packageData)
     }
   };
+}
+
+async function getDopaPackage(payload, packageId) {
+  const locale = normalizeDopaLocale(payload.locale);
+  const url = `${DOPA_GLOBAL_BASE_URL}/${locale}/gacha/${packageId}`;
+  const html = await fetchText(url);
+  const packageData = parseDopaPackageHtml(html, {
+    packageId,
+    locale
+  });
+
+  if (!packageData?.id) {
+    throw new Error("DOPA page did not return package data.");
+  }
+
+  return { package: packageData };
+}
+
+function normalizeDopaLocale(locale) {
+  const normalized = String(locale || "zh").toLowerCase();
+  return /^[a-z]{2}(?:-[a-z]{2})?$/.test(normalized) ? normalized : "zh";
 }
 
 async function getCardPrice(payload = {}) {

@@ -20,6 +20,7 @@
     collapsedRanks: new Set(),
     loading: false,
     collapsed: false,
+    pageSource: "",
     statusText: "待機中"
   };
 
@@ -45,14 +46,16 @@
     if (!page) {
       hideRoot();
       state.routeKey = "";
+      state.pageSource = "";
       return;
     }
 
     showRoot();
-    const routeKey = `${page.packageTypePath}:${page.packageId}`;
+    const routeKey = `${page.source}:${page.packageTypePath}:${page.packageId}`;
     if (!force && state.routeKey === routeKey) return;
 
     state.routeKey = routeKey;
+    state.pageSource = page.source;
     state.packageData = null;
     state.cards = [];
     state.prices.clear();
@@ -71,10 +74,14 @@
     render();
 
     try {
-      const response = await sendMessage("GET_PACKAGE", {
-        packageId: page.packageId,
-        shopId: inferShopId()
-      });
+      const payload = {
+        source: page.source,
+        packageId: page.packageId
+      };
+      if (page.source === "tcg-japan") payload.shopId = inferShopId();
+      if (page.locale) payload.locale = page.locale;
+
+      const response = await sendMessage("GET_PACKAGE", payload);
 
       state.packageData = response.package;
       const packageCards = response.package.package_cards || [];
@@ -250,13 +257,14 @@
     root.className = state.collapsed ? "tcg-ev-lens is-collapsed" : "tcg-ev-lens";
     const packageData = state.packageData;
     const summary = computeSummary();
-    const packageTitle = packageData?.name || "TCG Japan EV Lens";
+    const packageTitle = packageData?.name || "Gacha EV Lens";
+    const sourceLabel = sourceLabelForPackage(packageData);
 
     root.innerHTML = `
       <div class="tcg-ev-shell">
         <header class="tcg-ev-header">
           <div>
-            <div class="tcg-ev-kicker">TCG Japan EV Lens</div>
+            <div class="tcg-ev-kicker">Gacha EV Lens · ${escapeHtml(sourceLabel)}</div>
             <h2 title="${escapeHtml(packageTitle)}">${escapeHtml(packageTitle)}</h2>
           </div>
           <div class="tcg-ev-actions">
@@ -272,7 +280,7 @@
           ${renderCards(summary)}
           <footer class="tcg-ev-footer">
             <span>${escapeHtml(state.statusText)}</span>
-            <span>資料源：TCG Japan / SNKRDUNK</span>
+            <span>資料源：${escapeHtml(sourceLabel)} / SNKRDUNK</span>
           </footer>
         </div>
       </div>
@@ -972,6 +980,7 @@
     return (
       /PSA\s*10/i.test(String(card?.name || "")) ||
       String(card?.sourceElementClass || "").includes("gacha-info-card-psa") ||
+      String(card?.product_type || card?.productType || "").toLowerCase() === "psa" ||
       card?.is_psa_enabled === 1
     );
   }
@@ -1141,13 +1150,34 @@
     });
   }
 
-  function parsePackagePath(pathname) {
+  function parsePackagePath(pathname, hostname = location.hostname) {
+    if (String(hostname || "").includes("dopa-global.com")) {
+      return parseDopaPackagePath(pathname);
+    }
+
     const parts = String(pathname || "").split("/").filter(Boolean);
     if (parts.length < 2) return null;
     const packageId = Number(parts[parts.length - 1]);
     if (!Number.isInteger(packageId) || packageId <= 0) return null;
     return {
+      source: "tcg-japan",
       packageTypePath: parts[parts.length - 2],
+      packageId
+    };
+  }
+
+  function parseDopaPackagePath(pathname) {
+    const parts = String(pathname || "").split("/").filter(Boolean);
+    const gachaIndex = parts.indexOf("gacha");
+    if (gachaIndex === -1 || gachaIndex >= parts.length - 1) return null;
+
+    const packageId = Number(parts[gachaIndex + 1]);
+    if (!Number.isInteger(packageId) || packageId <= 0) return null;
+
+    return {
+      source: "dopa",
+      packageTypePath: "gacha",
+      locale: gachaIndex > 0 ? parts[gachaIndex - 1] : "zh",
       packageId
     };
   }
@@ -1160,7 +1190,7 @@
 
   function imageUrl(path) {
     if (!path) return "";
-    if (String(path).startsWith("https://")) return path;
+    if (/^https?:\/\//i.test(String(path))) return path;
     return `https://s3.ap-northeast-1.amazonaws.com/oripal-world.com${path}`;
   }
 
@@ -1183,11 +1213,21 @@
 
     const name = String(card?.name || "")
       .replace(/〔[^〕]*PSA\s*\d+[^〕]*〕/gi, "")
+      .replace(/\((?:Japanese|English|Korean|Chinese)\)/gi, "")
+      .replace(/\(\s*PSA\s*\d+\s*\)/gi, "")
       .replace(/\[[^\]]*\]/g, "")
       .replace(/[{}【】]/g, " ")
+      .replace(/\(\s*\)/g, "")
       .replace(/\s+/g, " ")
       .trim();
-    return `${name} ${isPsaPrize(card) ? `PSA${card.psa || 10}` : "B"}`.trim();
+    return [
+      name,
+      card?.rarity,
+      card?.itemNumber,
+      isPsaPrize(card) ? `PSA${card.psa || 10}` : "B"
+    ]
+      .filter(Boolean)
+      .join(" ");
   }
 
   function conditionLabel(card, data) {
@@ -1195,6 +1235,7 @@
       const point = Number(data?.source === "api_point" ? data.price : card.point);
       return Number.isFinite(point) && point > 0 ? `安慰獎 ${point}pt` : "安慰獎";
     }
+    if (card?.source === "dopa" && String(card?.product_type || "").toLowerCase() === "pack") return "商品/未鑑定";
     return isPsaPrize(card) ? `PSA${card.psa || 10}` : "B品";
   }
 
@@ -1242,6 +1283,12 @@
     if (data.status === "no_sales") return `${data.targetCondition || ""}無線圖`;
     if (data.status === "pending") return "等待中";
     return data.status || "-";
+  }
+
+  function sourceLabelForPackage(packageData) {
+    const source = packageData?.source || state.pageSource;
+    if (source === "dopa") return "DOPA Global";
+    return "TCG Japan";
   }
 
   function pricePlaceholder(data) {

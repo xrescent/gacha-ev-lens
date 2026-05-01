@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.5
+
+### Added
+
+- Added DOPA Global support for pages such as `https://dopa-global.com/zh/gacha/3765`.
+- Added parsing for DOPA Next.js pack payloads, including draw cost, total draw count, remaining draw count, S/A/B/C prize tiers, prize quantities, product type, PSA state, and last-one prize data.
+- Added DOPA host permissions and content-script matching.
+
+### Changed
+
+- Renamed the extension UI label from `TCG Japan EV Lens` to `Gacha EV Lens`.
+- DOPA S/A/B/C prize tiers are mapped into the existing R1/R2/R3/R4 EV UI, so the current manual overrides, coverage warnings, Rank folding, remaining-draw analysis, SNKRDUNK links, and Google links work without a separate panel.
+
 ## 0.1.4
 
 ### Added
