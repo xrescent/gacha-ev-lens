@@ -23,7 +23,7 @@ Chrome MV3 extension for estimating the expected value of TCG Japan gacha pools.
 1. Open Chrome and go to `chrome://extensions`.
 2. Enable `Developer mode`.
 3. Click `Load unpacked`.
-4. Select this project folder: `/Users/xrescent/Documents/New project`.
+4. Select this project folder.
 5. Visit a supported TCG Japan pool page.
 
 ## Notes
